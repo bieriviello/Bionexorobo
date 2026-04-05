@@ -1,0 +1,12 @@
+{
+  "email": "michele.rosete@unidasmedical.com.br",
+  "senha": "Unidas2025!",
+  "cnpj": "17.094.914/0002-42",
+  "margem": "0",
+  "prazo_padrao": "5",
+  "intervalo_min": "10",
+  "notificar_email": false,
+  "email_notificacao": "",
+  "auto_rodar": false,
+  "arquivo_catalogo": ""
+}
