@@ -762,6 +762,31 @@ class BionexoApp(ctk.CTk):
         self._log("▶ Execução manual iniciada...")
         threading.Thread(target=self.engine.testar_uma_vez, daemon=True).start()
 
+    def _validar_pre_inicio(self):
+        if not self.config.get("email") or not self.config.get("senha"):
+            messagebox.showwarning("Configuração incompleta", "Configure seu e-mail e senha nas Configurações.")
+            return False
+        if not self.catalogo:
+            messagebox.showwarning("Catálogo vazio", "Importe seu catálogo de produtos antes de iniciar.")
+            return False
+        return True
+
+    def _set_estado_bot(self, rodando):
+        self.bot_rodando = rodando
+        if rodando:
+            self.btn_iniciar.configure(state="disabled")
+            self.btn_parar.configure(state="normal")
+            self.dot_status.configure(text_color=COR_VERDE)
+            self.label_status_desc.configure(text="Robô em execução", text_color=COR_VERDE)
+            self.label_status_bot.configure(text="● Bot rodando")
+        else:
+            self.btn_iniciar.configure(state="normal")
+            self.btn_parar.configure(state="disabled")
+            self.dot_status.configure(text_color="#AAAAAA")
+            self.label_status_desc.configure(text="Robô parado", text_color=COR_TEXTO_SEC)
+            self.label_status_bot.configure(text="● Bot pausado")
+            self.label_prox_exec.configure(text="")
+
     def _build_pagina_historico(self):
         p = self.paginas["historico"]
 

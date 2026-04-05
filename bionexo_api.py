@@ -41,26 +41,43 @@ class BionexoAPI:
             if not self._inicializar_driver(headless):
                 return None
 
+        urls_tentar = [
+            "https://bioid.bionexo.com/",
+            "https://bioid.bionexo.com.br/",
+            "https://acesso.bionexo.com/",
+            "https://www.bionexo.com/login"
+        ]
+
+        for url in urls_tentar:
+            try:
+                self.log(f"Tentando acessar: {url}", "info")
+                self.driver.get(url)
+                
+                # Se carregou algo que não seja erro de DNS, prossegue
+                if "ERR_NAME_NOT_RESOLVED" not in self.driver.page_source:
+                    break
+            except Exception as e:
+                self.log(f"Falha ao carregar {url}: {e}", "aviso")
+                continue
+        
         try:
-            self.log("Acessando BioID Bionexo...", "info")
-            self.driver.get("https://bioid.bionexo.com/")
-            
-            # Aguarda e preenche o login
+            # Aguarda e preenche o login (BioID usa selectors username/password)
             self.wait.until(EC.presence_of_element_located((By.ID, "username"))).send_keys(self.config.get("email", ""))
             self.driver.find_element(By.ID, "password").send_keys(self.config.get("senha", ""))
             
             # Clique no botão entrar
-            # O ID do botão pode variar, usando seletor por texto ou tipo submit se necessário
             btn_entrar = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
             btn_entrar.click()
             
-            # Aguarda a página carregar após login (verifica se saiu da tela de login)
-            self.wait.until(EC.url_changes("https://bioid.bionexo.com/"))
+            # Aguarda a página carregar após login
+            self.wait.until(EC.url_changes(self.driver.current_url))
             
             self.log("Login realizado com sucesso!", "ok")
             return self.driver
         except Exception as e:
             self.log(f"Erro no fluxo de login: {e}", "erro")
+            # Tira print para debug se der erro (opcional, salvando localmente)
+            self.driver.save_screenshot("erro_login.png")
             self.fechar()
             return None
 
