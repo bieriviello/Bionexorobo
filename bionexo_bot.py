@@ -5,7 +5,7 @@
 ╚══════════════════════════════════════════════════════════╝
 
 Dependências:
-    pip install customtkinter openpyxl pandas playwright requests
+    pip install customtkinter openpyxl
 
 Como usar:
     python bionexo_bot.py
@@ -20,14 +20,10 @@ import os
 import time
 import re
 import datetime
-import webbrowser
+from bionexo_data import DataManager
+from bionexo_engine import BionexoBotEngine
 from pathlib import Path
 
-try:
-    import pandas as pd
-    HAS_PANDAS = True
-except ImportError:
-    HAS_PANDAS = False
 
 try:
     import openpyxl
@@ -58,30 +54,6 @@ CONFIG_FILE = "bionexo_config.json"
 CATALOGO_CACHE = "catalogo_cache.json"
 
 
-def carregar_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
-        "email": "",
-        "senha": "",
-        "cnpj": "",
-        "margem": "0",
-        "prazo_padrao": "3",
-        "intervalo_min": "10",
-        "notificar_email": False,
-        "email_notificacao": "",
-        "auto_rodar": False,
-        "arquivo_catalogo": "",
-    }
-
-
-def salvar_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 
 # ══════════════════════════════════════════════════════════
@@ -97,7 +69,13 @@ class BionexoApp(ctk.CTk):
         self.minsize(900, 600)
         self.configure(fg_color=COR_CINZA_BG)
 
-        self.config = carregar_config()
+        self.config = DataManager.carregar_config()
+        callbacks = {
+            "log": self._log,
+            "metric_add": self._atualizar_metrica,
+            "finish_cycle": self._bionexo_engine_finish
+        }
+        self.engine = BionexoBotEngine(self.config, self.catalogo, callbacks)
         self.catalogo = []          # lista de dicts com os produtos
         self.bot_rodando = False
         self.thread_bot = None
@@ -435,7 +413,7 @@ class BionexoApp(ctk.CTk):
 
             self.catalogo = produtos
             self.config["arquivo_catalogo"] = path
-            salvar_config(self.config)
+            DataManager.salvar_config(self.config)
             self._atualizar_tabela()
             self._atualizar_contador()
 
@@ -751,16 +729,19 @@ class BionexoApp(ctk.CTk):
 
     # ── Lógica do bot ─────────────────────────────────────
 
+
+    def _bionexo_engine_finish(self):
+        self.after(0, lambda: self._set_estado_bot(False))
+
     def _iniciar_bot(self):
         if not self._validar_pre_inicio():
             return
-        self.bot_rodando = True
         self._set_estado_bot(True)
-        self.thread_bot = threading.Thread(target=self._loop_bot, daemon=True)
+        self.thread_bot = threading.Thread(target=self.engine.iniciar, daemon=True)
         self.thread_bot.start()
 
     def _parar_bot(self):
-        self.bot_rodando = False
+        self.engine.parar()
         self._set_estado_bot(False)
         self._log("Robô parado pelo usuário.", "aviso")
 
@@ -768,280 +749,7 @@ class BionexoApp(ctk.CTk):
         if not self._validar_pre_inicio():
             return
         self._log("▶ Execução manual iniciada...")
-        threading.Thread(target=self._ciclo_bot, daemon=True).start()
-
-    def _validar_pre_inicio(self):
-        cfg = self.config
-        if not cfg.get("email") or not cfg.get("senha") or not cfg.get("cnpj"):
-            messagebox.showwarning(
-                "Configuração incompleta",
-                "Preencha e-mail, senha e CNPJ nas Configurações antes de iniciar o robô."
-            )
-            self._mostrar_pagina("config")
-            return False
-        if not self.catalogo:
-            messagebox.showwarning(
-                "Catálogo vazio",
-                "Importe seu catálogo de produtos antes de iniciar o robô."
-            )
-            self._mostrar_pagina("catalogo")
-            return False
-        return True
-
-    def _set_estado_bot(self, rodando):
-        self.bot_rodando = rodando
-        if rodando:
-            self.dot_status.configure(text_color=COR_VERDE_MED)
-            self.label_status_desc.configure(text="Robô ativo", text_color=COR_VERDE)
-            self.btn_iniciar.configure(state="disabled", fg_color="#AAAAAA")
-            self.btn_parar.configure(state="normal")
-            self.label_status_bot.configure(text="● Bot ativo")
-        else:
-            self.dot_status.configure(text_color="#AAAAAA")
-            self.label_status_desc.configure(text="Robô parado", text_color=COR_TEXTO_SEC)
-            self.btn_iniciar.configure(state="normal", fg_color=COR_VERDE)
-            self.btn_parar.configure(state="disabled")
-            self.label_status_bot.configure(text="● Bot pausado")
-            self.label_prox_exec.configure(text="")
-
-    def _loop_bot(self):
-        intervalo = int(self.config.get("intervalo_min", 10)) * 60
-        while self.bot_rodando:
-            self._ciclo_bot()
-            if not self.bot_rodando:
-                break
-            # Countdown
-            for restante in range(intervalo, 0, -1):
-                if not self.bot_rodando:
-                    break
-                mins, secs = divmod(restante, 60)
-                self.after(0, lambda m=mins, s=secs: self.label_prox_exec.configure(
-                    text=f"Próxima execução em {m:02d}:{s:02d}"
-                ))
-                time.sleep(1)
-
-    def _ciclo_bot(self):
-        self.after(0, lambda: self._log("─" * 45))
-        self.after(0, lambda: self._log("Iniciando ciclo de varredura..."))
-
-        try:
-            # 1. Login
-            self.after(0, lambda: self._log("Fazendo login na Bionexo..."))
-            sessao = self._login_bionexo()
-            if not sessao:
-                self.after(0, lambda: self._log("Falha no login. Verifique credenciais.", "erro"))
-                self.after(0, lambda: self._atualizar_metrica("erros"))
-                self._registrar_historico(0, 0, 0, "Falha no login")
-                return
-
-            self.after(0, lambda: self._log("Login realizado.", "ok"))
-
-            # 2. Buscar cotações
-            cotacoes = self._buscar_cotacoes(sessao)
-            self.after(0, lambda: self._log(f"Cotações abertas: {len(cotacoes)}"))
-
-            if not cotacoes:
-                self.after(0, lambda: self._log("Nenhuma cotação aberta no momento."))
-                self._registrar_historico(0, 0, 0, "Sem cotações abertas")
-                return
-
-            total_resp = 0
-            total_sem  = 0
-
-            for cotacao in cotacoes:
-                r, s = self._processar_cotacao(cotacao, sessao)
-                total_resp += r
-                total_sem  += s
-
-            self.after(0, lambda r=total_resp: self._atualizar_metrica("respondidas_hoje", r))
-            self.after(0, lambda s=total_sem: self._atualizar_metrica("sem_match", s))
-            self.after(0, lambda: self._log(
-                f"Ciclo concluído — {total_resp} respondidos, {total_sem} sem match.", "ok"
-            ))
-            self._registrar_historico(len(cotacoes), total_resp, total_sem, "OK")
-
-        except Exception as e:
-            self.after(0, lambda err=str(e): self._log(f"Erro no ciclo: {err}", "erro"))
-            self.after(0, lambda: self._atualizar_metrica("erros"))
-            self._registrar_historico(0, 0, 0, f"Erro: {e}")
-
-    def _login_bionexo(self):
-        """
-        Faz login na Bionexo e retorna o cookie de sessão.
-        NOTA: os endpoints abaixo são ilustrativos — ajuste conforme
-        a versão atual do portal (inspecione o Network no DevTools).
-        """
-        try:
-            import urllib.request
-            import urllib.parse
-            import urllib.error
-
-            dados = urllib.parse.urlencode({
-                "login": self.config["email"],
-                "senha": self.config["senha"],
-                "cnpj":  self.config["cnpj"].replace(".", "").replace("/", "").replace("-", ""),
-            }).encode("utf-8")
-
-            req = urllib.request.Request(
-                "https://www.bionexo.com/login",
-                data=dados,
-                headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"},
-            )
-            req.add_unredirected_header("Cookie", "")
-
-            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-            resp = opener.open(req, timeout=15)
-            cookie_jar = opener._handlers[0]  # tipo HTTPCookieProcessor
-
-            # Extrai cookies da resposta
-            cookie_header = resp.headers.get("Set-Cookie", "")
-            if cookie_header:
-                return {"cookie": cookie_header, "opener": opener}
-
-            # Tenta via headers múltiplos
-            all_cookies = [v for k, v in resp.headers.items() if k.lower() == "set-cookie"]
-            if all_cookies:
-                return {"cookie": "; ".join(all_cookies), "opener": opener}
-
-            return None
-
-        except Exception as e:
-            self.after(0, lambda err=str(e): self._log(f"  Erro de conexão: {err}", "erro"))
-            return None
-
-    def _buscar_cotacoes(self, sessao):
-        """Busca cotações abertas para este fornecedor."""
-        try:
-            import urllib.request
-            import json as _json
-
-            req = urllib.request.Request(
-                "https://www.bionexo.com/wss/cotacao/fornecedor/abertas",
-                headers={
-                    "Cookie": sessao["cookie"],
-                    "Accept": "application/json",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "User-Agent": "Mozilla/5.0",
-                },
-            )
-            resp = sessao["opener"].open(req, timeout=15)
-            dados = _json.loads(resp.read().decode("utf-8"))
-            return dados if isinstance(dados, list) else dados.get("cotacoes", dados.get("data", []))
-        except Exception as e:
-            self.after(0, lambda err=str(e): self._log(f"  Erro ao buscar cotações: {err}", "aviso"))
-            return []
-
-    def _processar_cotacao(self, cotacao, sessao):
-        cid = cotacao.get("id") or cotacao.get("numero") or "?"
-        itens = cotacao.get("itens") or []
-        respondidos = 0
-        sem_match = 0
-
-        self.after(0, lambda c=cid: self._log(f"  PDC {c}: {len(itens)} itens"))
-        self.after(0, lambda r=len(itens): self._atualizar_metrica("total_itens", r))
-
-        for item in itens:
-            desc = str(item.get("descricao") or item.get("produto") or "").strip()
-            if not desc:
-                continue
-            match = self._encontrar_produto(desc)
-            if not match:
-                self.after(0, lambda d=desc: self._log(f"    ✘ sem match: {d[:50]}"))
-                sem_match += 1
-                continue
-
-            margem = float(self.config.get("margem", 0)) / 100
-            preco_final = match["preco"] * (1 + margem)
-            ok = self._enviar_proposta(item, cotacao, match, preco_final, sessao)
-
-            if ok:
-                self.after(0, lambda d=match["descricao"], v=preco_final:
-                    self._log(f"    ✔ {d[:40]} → R$ {v:.2f}", "ok"))
-                respondidos += 1
-            else:
-                self.after(0, lambda d=desc: self._log(f"    ✘ falha ao enviar: {d[:40]}", "erro"))
-                sem_match += 1
-
-        return respondidos, sem_match
-
-    def _encontrar_produto(self, descricao_item):
-        desc_norm = descricao_item.lower().strip()
-        ativos = [p for p in self.catalogo if p.get("ativo") == "SIM" and p.get("preco", 0) > 0]
-
-        # Match exato
-        for p in ativos:
-            if p["descricao"].lower() == desc_norm:
-                return p
-        # Match por código
-        for p in ativos:
-            if p.get("codigo") and p["codigo"].lower() == desc_norm:
-                return p
-        # Match por palavras-chave
-        palavras = [w for w in re.sub(r"[^a-z0-9 ]", " ", desc_norm).split() if len(w) > 2]
-        if not palavras:
-            return None
-        melhor, melhor_score = None, 0
-        for p in ativos:
-            haystack = re.sub(r"[^a-z0-9 ]", " ", p["descricao"].lower())
-            score = sum(1 for w in palavras if w in haystack)
-            pct = score / len(palavras)
-            if pct >= 0.65 and score > melhor_score:
-                melhor, melhor_score = p, score
-        return melhor
-
-    def _enviar_proposta(self, item, cotacao, produto, preco, sessao):
-        try:
-            import urllib.request
-            import json as _json
-
-            payload = _json.dumps({
-                "cotacaoId": cotacao.get("id"),
-                "itemId":    item.get("id") or item.get("itemId"),
-                "preco":     round(preco, 2),
-                "prazoEntrega": produto["prazo"],
-                "marca":     produto["marca"] or "Conforme especificação",
-                "unidade":   produto["unidade"],
-            }).encode("utf-8")
-
-            req = urllib.request.Request(
-                "https://www.bionexo.com/wss/cotacao/responder",
-                data=payload,
-                headers={
-                    "Cookie": sessao["cookie"],
-                    "Content-Type": "application/json",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "User-Agent": "Mozilla/5.0",
-                },
-            )
-            resp = sessao["opener"].open(req, timeout=10)
-            return resp.status in (200, 201)
-        except Exception:
-            return False
-
-    def _registrar_historico(self, cotacoes, respondidos, sem_match, status):
-        entrada = {
-            "timestamp": datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            "cotacoes": cotacoes,
-            "respondidos": respondidos,
-            "sem_match": sem_match,
-            "status": status,
-        }
-        try:
-            hist = []
-            if os.path.exists("bionexo_historico.json"):
-                with open("bionexo_historico.json", "r", encoding="utf-8") as f:
-                    hist = json.load(f)
-            hist.insert(0, entrada)
-            hist = hist[:500]  # mantém últimas 500 entradas
-            with open("bionexo_historico.json", "w", encoding="utf-8") as f:
-                json.dump(hist, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-        self.after(0, self._recarregar_historico)
-
-    # ══════════════════════════════════════════════════════
-    #  PÁGINA 3 — HISTÓRICO
-    # ══════════════════════════════════════════════════════
+        threading.Thread(target=self.engine.testar_uma_vez, daemon=True).start()
 
     def _build_pagina_historico(self):
         p = self.paginas["historico"]
@@ -1115,8 +823,8 @@ class BionexoApp(ctk.CTk):
         try:
             if not os.path.exists("bionexo_historico.json"):
                 return
-            with open("bionexo_historico.json", "r", encoding="utf-8") as f:
-                hist = json.load(f)
+            # with open("bionexo_historico.json", "r", encoding="utf-8") as f:
+                hist = DataManager.carregar_historico()
             for entrada in hist:
                 tag = "ok" if entrada["status"] == "OK" else ("erro" if "Erro" in entrada["status"] else "vazio")
                 self.tree_hist.insert("", "end", values=(
@@ -1132,7 +840,7 @@ class BionexoApp(ctk.CTk):
     def _limpar_historico(self):
         if messagebox.askyesno("Confirmar", "Limpar todo o histórico?"):
             if os.path.exists("bionexo_historico.json"):
-                os.remove("bionexo_historico.json")
+                DataManager.limpar_historico()
             self._recarregar_historico()
 
     # ══════════════════════════════════════════════════════
@@ -1234,7 +942,7 @@ class BionexoApp(ctk.CTk):
             "notificar_email":   bool(self.sw_notif.get()),
             "email_notificacao": self.e_email_notif.get().strip(),
         })
-        salvar_config(self.config)
+        DataManager.salvar_config(self.config)
         self.label_intervalo_display.configure(
             text=f"A cada {self.config['intervalo_min']} minutos"
         )

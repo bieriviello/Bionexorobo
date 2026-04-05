@@ -1,0 +1,132 @@
+import time
+import re
+from bionexo_api import BionexoAPI
+from bionexo_data import DataManager
+
+class BionexoBotEngine:
+    def __init__(self, config, catalogo, callbacks):
+        self.config = config
+        self.catalogo = catalogo
+        # callbacks: log(msg, tipo), metric_add(name, val), finish_cycle()
+        self.log = callbacks.get("log", lambda m, t: print(m))
+        self.metric_add = callbacks.get("metric_add", lambda n, v: None)
+        self.finish_cycle = callbacks.get("finish_cycle", lambda: None)
+        
+        self.api = BionexoAPI(config, log_callback=self.log)
+        self.rodando = False
+
+    def iniciar(self):
+        self.rodando = True
+        intervalo = int(self.config.get("intervalo_min", 10)) * 60
+        while self.rodando:
+            self._ciclo()
+            if not self.rodando:
+                break
+            for _ in range(intervalo):
+                if not self.rodando:
+                    break
+                time.sleep(1)
+
+    def parar(self):
+        self.rodando = False
+
+    def testar_uma_vez(self):
+        self._ciclo()
+
+    def _ciclo(self):
+        self.log("─" * 45, "info")
+        self.log("Iniciando ciclo de varredura...", "info")
+        try:
+            self.log("Fazendo login na Bionexo...", "info")
+            sessao = self.api.login()
+            if not sessao:
+                self.log("Falha no login. Verifique credenciais.", "erro")
+                self.metric_add("erros", 1)
+                DataManager.registrar_historico(0, 0, 0, "Falha no login")
+                self.finish_cycle()
+                return
+
+            self.log("Login realizado.", "ok")
+            cotacoes = self.api.buscar_cotacoes(sessao)
+            self.log(f"Cotações abertas: {len(cotacoes)}", "info")
+
+            if not cotacoes:
+                self.log("Nenhuma cotação aberta no momento.", "info")
+                DataManager.registrar_historico(0, 0, 0, "Sem cotações abertas")
+                self.finish_cycle()
+                return
+
+            total_resp = 0
+            total_sem = 0
+
+            for cotacao in cotacoes:
+                r, s = self._processar_cotacao(cotacao, sessao)
+                total_resp += r
+                total_sem += s
+
+            self.metric_add("respondidas_hoje", total_resp)
+            self.metric_add("sem_match", total_sem)
+            self.log(f"Ciclo concluído — {total_resp} respondidos, {total_sem} sem match.", "ok")
+            DataManager.registrar_historico(len(cotacoes), total_resp, total_sem, "OK")
+            self.finish_cycle()
+        except Exception as e:
+            self.log(f"Erro no ciclo: {e}", "erro")
+            self.metric_add("erros", 1)
+            DataManager.registrar_historico(0, 0, 0, f"Erro: {e}")
+            self.finish_cycle()
+
+    def _processar_cotacao(self, cotacao, sessao):
+        cid = cotacao.get("id") or cotacao.get("numero") or "?"
+        itens = cotacao.get("itens") or []
+        respondidos = 0
+        sem_match = 0
+
+        self.log(f"  PDC {cid}: {len(itens)} itens", "info")
+        self.metric_add("total_itens", len(itens))
+
+        for item in itens:
+            desc = str(item.get("descricao") or item.get("produto") or "").strip()
+            if not desc:
+                continue
+            match = self._encontrar_produto(desc)
+            if not match:
+                self.log(f"    ✘ sem match: {desc[:50]}", "info")
+                sem_match += 1
+                continue
+
+            margem = float(self.config.get("margem", 0)) / 100
+            preco_final = match["preco"] * (1 + margem)
+            ok = self.api.enviar_proposta(sessao, cotacao.get("id"), item.get("id") or item.get("itemId"), preco_final, match["prazo"], match["marca"], match["unidade"])
+
+            if ok:
+                self.log(f"    ✔ {match['descricao'][:40]} → R$ {preco_final:.2f}", "ok")
+                respondidos += 1
+            else:
+                self.log(f"    ✘ falha ao enviar: {desc[:40]}", "erro")
+                sem_match += 1
+
+        return respondidos, sem_match
+
+    def _encontrar_produto(self, descricao_item):
+        desc_norm = descricao_item.lower().strip()
+        ativos = [p for p in self.catalogo if p.get("ativo") == "SIM" and p.get("preco", 0) > 0]
+
+        for p in ativos:
+            if p["descricao"].lower() == desc_norm:
+                return p
+        for p in ativos:
+            if p.get("codigo") and p["codigo"].lower() == desc_norm:
+                return p
+
+        palavras = [w for w in re.sub(r"[^a-z0-9 ]", " ", desc_norm).split() if len(w) > 2]
+        if not palavras:
+            return None
+            
+        melhor, melhor_score = None, 0
+        for p in ativos:
+            haystack = re.sub(r"[^a-z0-9 ]", " ", p["descricao"].lower())
+            score = sum(1 for w in palavras if w in haystack)
+            pct = score / len(palavras)
+            if pct >= 0.65 and score > melhor_score:
+                melhor, melhor_score = p, score
+        return melhor
