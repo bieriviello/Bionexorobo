@@ -75,8 +75,8 @@ class BionexoApp(ctk.CTk):
             "metric_add": self._atualizar_metrica,
             "finish_cycle": self._bionexo_engine_finish
         }
-        self.engine = BionexoBotEngine(self.config, self.catalogo, callbacks)
         self.catalogo = []          # lista de dicts com os produtos
+        self.engine = BionexoBotEngine(self.config, self.catalogo, callbacks)
         self.bot_rodando = False
         self.thread_bot = None
         self.logs = []
