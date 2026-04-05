@@ -83,8 +83,13 @@ class BionexoApp(ctk.CTk):
 
         self._build_ui()
 
-        # Carrega catálogo se já havia um arquivo salvo
-        if self.config.get("arquivo_catalogo") and os.path.exists(self.config["arquivo_catalogo"]):
+        # Carrega catálogo do cache ou do arquivo original
+        cache = DataManager.carregar_catalogo_cache()
+        if cache is not None:
+            self.catalogo = cache
+            self.after(300, self._atualizar_tabela)
+            self.after(300, self._atualizar_contador)
+        elif self.config.get("arquivo_catalogo") and os.path.exists(self.config["arquivo_catalogo"]):
             self.after(300, lambda: self._carregar_catalogo_arquivo(self.config["arquivo_catalogo"], silencioso=True))
 
     # ── Layout principal ──────────────────────────────────
@@ -414,6 +419,7 @@ class BionexoApp(ctk.CTk):
             self.catalogo = produtos
             self.config["arquivo_catalogo"] = path
             DataManager.salvar_config(self.config)
+            DataManager.salvar_catalogo(self.catalogo)
             self._atualizar_tabela()
             self._atualizar_contador()
 
@@ -528,6 +534,7 @@ class BionexoApp(ctk.CTk):
         desc = item["values"][0]
         if messagebox.askyesno("Confirmar", f"Remover '{desc}' do catálogo?"):
             self.catalogo = [p for p in self.catalogo if p["descricao"] != desc]
+            DataManager.salvar_catalogo(self.catalogo)
             self._atualizar_tabela()
             self._atualizar_contador()
 
@@ -1033,6 +1040,7 @@ class JanelaAdicionarProduto(ctk.CTkToplevel):
             "estoque":   float(self.e_estoque.get().strip() or "999"),
             "ativo":     "SIM",
         })
+        DataManager.salvar_catalogo(self.catalogo)
         self.callback_tabela()
         self.callback_contador()
         self.destroy()

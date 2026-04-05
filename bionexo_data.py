@@ -54,6 +54,21 @@ class DataManager:
             pass
 
     @staticmethod
+    def salvar_catalogo(catalogo):
+        with open("catalogo_cache.json", "w", encoding="utf-8") as f:
+            json.dump(catalogo, f, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def carregar_catalogo_cache():
+        if not os.path.exists("catalogo_cache.json"):
+            return None
+        try:
+            with open("catalogo_cache.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    @staticmethod
     def carregar_historico():
         if not os.path.exists(HISTORICO_FILE):
             return []
