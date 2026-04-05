@@ -716,14 +716,16 @@ class BionexoApp(ctk.CTk):
         self._metricas = {"respondidas_hoje": 0, "total_itens": 0, "sem_match": 0, "erros": 0}
 
     def _log(self, msg, tipo="info"):
-        hora = datetime.datetime.now().strftime("%H:%M:%S")
-        prefixos = {"info": "  ", "ok": "✔ ", "erro": "✘ ", "aviso": "⚠ "}
-        linha = f"[{hora}] {prefixos.get(tipo, '')} {msg}\n"
-        self.logs.append(linha)
-        self.txt_log.configure(state="normal")
-        self.txt_log.insert("end", linha)
-        self.txt_log.see("end")
-        self.txt_log.configure(state="disabled")
+        def action():
+            hora = datetime.datetime.now().strftime("%H:%M:%S")
+            prefixos = {"info": "  ", "ok": "✔ ", "erro": "✘ ", "aviso": "⚠ "}
+            linha = f"[{hora}] {prefixos.get(tipo, '')} {msg}\n"
+            self.logs.append(linha)
+            self.txt_log.configure(state="normal")
+            self.txt_log.insert("end", linha)
+            self.txt_log.see("end")
+            self.txt_log.configure(state="disabled")
+        self.after(0, action)
 
     def _limpar_log(self):
         self.txt_log.configure(state="normal")
@@ -731,8 +733,10 @@ class BionexoApp(ctk.CTk):
         self.txt_log.configure(state="disabled")
 
     def _atualizar_metrica(self, key, delta=1):
-        self._metricas[key] = self._metricas.get(key, 0) + delta
-        self.labels_metricas[key].configure(text=str(self._metricas[key]))
+        def action():
+            self._metricas[key] = self._metricas.get(key, 0) + delta
+            self.labels_metricas[key].configure(text=str(self._metricas[key]))
+        self.after(0, action)
 
     # ── Lógica do bot ─────────────────────────────────────
 
@@ -927,7 +931,25 @@ class BionexoApp(ctk.CTk):
 
         self.e_email_notif = campo(c3, "E-mail de destino", "seu@email.com.br",
                                     inicial=self.config.get("email_notificacao", ""))
-        ctk.CTkFrame(c3, height=1).pack(pady=(0, 4))
+        
+        # ─── Configurações do Navegador ────────────────────
+        c4 = card("Configurações do Robô (Selenium)")
+        row_browser = ctk.CTkFrame(c4, fg_color="transparent")
+        row_browser.pack(fill="x", padx=20, pady=(0, 12))
+        ctk.CTkLabel(row_browser, text="Mostrar navegador",
+                     font=ctk.CTkFont(size=12), text_color=COR_TEXTO_SEC,
+                     width=160, anchor="w").pack(side="left")
+        self.sw_browser = ctk.CTkSwitch(row_browser, text="",
+                                         onvalue=True, offvalue=False,
+                                         progress_color=COR_VERDE)
+        self.sw_browser.pack(side="left")
+        if self.config.get("navegador_visivel"):
+            self.sw_browser.select()
+        
+        ctk.CTkLabel(c4,
+            text="  Ative para ver o Chrome abrindo e realizando o login na sua frente.",
+            font=ctk.CTkFont(size=10), text_color=COR_TEXTO_SEC,
+        ).pack(anchor="w", padx=20, pady=(0, 16))
 
         # ─── Botão salvar ─────────────────────────────────
         ctk.CTkButton(
@@ -948,6 +970,7 @@ class BionexoApp(ctk.CTk):
             "intervalo_min":     self.e_intervalo.get().strip() or "10",
             "notificar_email":   bool(self.sw_notif.get()),
             "email_notificacao": self.e_email_notif.get().strip(),
+            "navegador_visivel": bool(self.sw_browser.get()),
         })
         DataManager.salvar_config(self.config)
         self.label_intervalo_display.configure(

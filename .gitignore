@@ -4,3 +4,4 @@ dist/
 *.spec
 bionexo_config.json
 catalogo_cache.json
+bionexo_historico.json

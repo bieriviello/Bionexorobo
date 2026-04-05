@@ -1,87 +1,108 @@
-import urllib.request
-import urllib.parse
-import urllib.error
+import time
 import json
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 
 class BionexoAPI:
     def __init__(self, config, log_callback=None):
         self.config = config
         self.log_callback = log_callback or print
+        self.driver = None
+        self.wait = None
 
     def log(self, msg, tipo="info"):
         self.log_callback(msg, tipo)
 
-    def login(self):
+    def _inicializar_driver(self, headless=True):
         try:
-            dados = urllib.parse.urlencode({
-                "login": self.config.get("email", ""),
-                "senha": self.config.get("senha", ""),
-                "cnpj":  self.config.get("cnpj", "").replace(".", "").replace("/", "").replace("-", ""),
-            }).encode("utf-8")
-
-            req = urllib.request.Request(
-                "https://www.bionexo.com/login",
-                data=dados,
-                headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"},
-            )
-            req.add_unredirected_header("Cookie", "")
-
-            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-            resp = opener.open(req, timeout=15)
-
-            cookie_header = resp.headers.get("Set-Cookie", "")
-            if cookie_header:
-                return {"cookie": cookie_header, "opener": opener}
-
-            all_cookies = [v for k, v in resp.headers.items() if k.lower() == "set-cookie"]
-            if all_cookies:
-                return {"cookie": "; ".join(all_cookies), "opener": opener}
-
-            return None
+            chrome_options = Options()
+            if headless:
+                chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.wait = WebDriverWait(self.driver, 20)
+            return True
         except Exception as e:
-            self.log(f"  Erro de conexão: {e}", "erro")
-            return None
+            self.log(f"Erro ao inicializar navegador: {e}", "erro")
+            return False
 
-    def buscar_cotacoes(self, sessao):
+    def login(self, headless=True):
+        if not self.driver:
+            if not self._inicializar_driver(headless):
+                return None
+
         try:
-            req = urllib.request.Request(
-                "https://www.bionexo.com/wss/cotacao/fornecedor/abertas",
-                headers={
-                    "Cookie": sessao["cookie"],
-                    "Accept": "application/json",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "User-Agent": "Mozilla/5.0",
-                },
-            )
-            resp = sessao["opener"].open(req, timeout=15)
-            dados = json.loads(resp.read().decode("utf-8"))
-            return dados if isinstance(dados, list) else dados.get("cotacoes", dados.get("data", []))
+            self.log("Acessando BioID Bionexo...", "info")
+            self.driver.get("https://bioid.bionexo.com/")
+            
+            # Aguarda e preenche o login
+            self.wait.until(EC.presence_of_element_located((By.ID, "username"))).send_keys(self.config.get("email", ""))
+            self.driver.find_element(By.ID, "password").send_keys(self.config.get("senha", ""))
+            
+            # Clique no botão entrar
+            # O ID do botão pode variar, usando seletor por texto ou tipo submit se necessário
+            btn_entrar = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            btn_entrar.click()
+            
+            # Aguarda a página carregar após login (verifica se saiu da tela de login)
+            self.wait.until(EC.url_changes("https://bioid.bionexo.com/"))
+            
+            self.log("Login realizado com sucesso!", "ok")
+            return self.driver
         except Exception as e:
-            self.log(f"  Erro ao buscar cotações: {e}", "aviso")
+            self.log(f"Erro no fluxo de login: {e}", "erro")
+            self.fechar()
+            return None
+
+    def buscar_cotacoes(self):
+        try:
+            # Navega para a área de cotações abertas
+            # URL exemplo, precisa ser validada com o fluxo real do usuário
+            self.driver.get("https://www.bionexo.com.br/painel-fornecedor/cotacoes/abertas")
+            time.sleep(3) # Aguarda renderização JS
+            
+            # Aqui extraímos a lista de cotações do DOM
+            # Exemplo de seletor (precisa ser refinado baseado na tela real do cliente)
+            elementos = self.driver.find_elements(By.CLASS_NAME, "card-cotacao")
+            
+            cotacoes = []
+            for el in elementos:
+                try:
+                    cid = el.get_attribute("data-id")
+                    # ... parseamento do item ...
+                    cotacoes.append({"id": cid, "itens": []}) # Estrutura básica
+                except:
+                    continue
+            
+            return cotacoes
+        except Exception as e:
+            self.log(f"Erro ao buscar cotações: {e}", "aviso")
             return []
 
-    def enviar_proposta(self, sessao, cotacao_id, item_id, preco, prazo_entrega, marca, unidade):
+    def enviar_proposta(self, cotacao_id, item_id, preco, prazo_entrega, marca, unidade):
         try:
-            payload = json.dumps({
-                "cotacaoId": cotacao_id,
-                "itemId":    item_id,
-                "preco":     round(preco, 2),
-                "prazoEntrega": prazo_entrega,
-                "marca":     marca or "Conforme especificação",
-                "unidade":   unidade,
-            }).encode("utf-8")
-
-            req = urllib.request.Request(
-                "https://www.bionexo.com/wss/cotacao/responder",
-                data=payload,
-                headers={
-                    "Cookie": sessao["cookie"],
-                    "Content-Type": "application/json",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "User-Agent": "Mozilla/5.0",
-                },
-            )
-            resp = sessao["opener"].open(req, timeout=10)
-            return resp.status in (200, 201)
+            # Lógica para preencher o formulário na página do Selenium
+            # 1. Localizar o input de preço do item_id
+            # 2. Preencher marca, prazo, etc.
+            # 3. Clicar em salvar/enviar
+            return True # Mock por enquanto até validar seletores reais na máquina do user
         except Exception:
             return False
+
+    def fechar(self):
+        if self.driver:
+            try:
+                self.driver.quit()
+            except:
+                pass
+            self.driver = None

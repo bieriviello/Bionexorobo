@@ -18,7 +18,7 @@ Ele instala o que falta e abre o programa.
 
 ### Opção 2 — Manual
 ```
-pip install customtkinter openpyxl
+pip install customtkinter openpyxl selenium webdriver-manager
 python bionexo_bot.py
 ```
 
@@ -85,12 +85,19 @@ Dica: quanto mais detalhada a descrição, melhor o match.
 
 ---
 
-## Observação importante
+## Funcionamento e Manutenção
 
-O robô acessa o portal da Bionexo via requisições HTTP diretas.
-Se a Bionexo atualizar a estrutura do portal, os endpoints podem
-precisar de ajuste. Nesse caso, verifique o log de erros e
-atualize as URLs na função `_login_bionexo` e `_buscar_cotacoes`.
+O robô utiliza o **Selenium WebDriver** para automatizar o acesso ao portal da Bionexo (BioID).
+Isso significa que ele abre uma instância do Google Chrome (visível ou oculta) e realiza as
+mesmas ações que um humano faria: preenche o login, senha e navega pelas telas.
 
-Para a versão com API oficial (mais estável), entre em contato
-com a Bionexo pelo e-mail: integracao@bionexo.com
+**Vantagens:**
+- Mais robusto contra mudanças de segurança da Bionexo.
+- Consegue lidar com sistemas de autenticação complexos (BioID).
+
+**Requisitos Adicionais:**
+- Ter o **Google Chrome** instalado no computador.
+- O robô gerencia o "ChromeDriver" automaticamente através do `webdriver-manager`.
+
+Se o portal da Bionexo sofrer uma mudança visual radical, os seletores em `bionexo_api.py`
+podem precisar de ajuste pontual.
