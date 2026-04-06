@@ -96,10 +96,8 @@ class BionexoBotEngine:
             DataManager.registrar_historico(0, 0, 0, f"Erro: {e}")
             self.finish_cycle()
         finally:
-            # Opcional: fechar a cada ciclo ou manter aberto? 
-            # Manter aberto economiza tempo de login, mas fechar é mais seguro contra memory leaks.
-            # Vou fechar por segurança entre ciclos longos.
-            if self.rodando:
+            # No modo manual, NUNCA fechamos o navegador automaticamente
+            if not manual:
                 self.api.fechar()
 
     def _processar_cotacao(self, cotacao):
