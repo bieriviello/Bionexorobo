@@ -64,6 +64,16 @@ class BionexoAPI:
         return None
 
     def login(self, headless=True):
+        if self.driver:
+            # Verifica se já estamos logados em uma sessão ativa
+            try:
+                curr_url = self.driver.current_url
+                if "bionexo.com" in curr_url and not any(x in curr_url for x in ["login.", "auth.", "asgardeo", "accounts.", "index3.jsp"]):
+                    self.log("Sessão ativa detectada. Mantendo conexão aberta.", "ok")
+                    return self.driver
+            except:
+                pass
+
         if not self.driver:
             if not self._inicializar_driver(headless):
                 return None
@@ -76,7 +86,6 @@ class BionexoAPI:
             self.driver.get("https://www.bionexo.com/")
             
             # 2. Clica no botão de Login da Home
-            # Seletor: a.styles_navbar_buttons_login__2jR7q
             try:
                 btn_login_home = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[class*='buttons_login']")))
                 btn_login_home.click()
@@ -101,12 +110,11 @@ class BionexoAPI:
             self.log("Credenciais enviadas.", "info")
 
             # 4. Trata tela de "Acessar Portal" (se aparecer)
-            time.sleep(5) # Aguarda redirecionamentos
+            time.sleep(5) 
             if "Acessar Portal" in self.driver.page_source or "Acessar" in self.driver.page_source:
                 self.log("Detectada tela de seleção de portal. Tentando entrar...", "info")
                 try:
-                    # Tenta clicar no primeiro botão "Acessar Portal" que encontrar
-                    btn_acessar = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Acessar Portal')] | //a[contains(text(), 'Acessar Portal')]")
+                    btn_acessar = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Acessar') or contains(text(), 'Portal')] | //a[contains(text(), 'Acessar') or contains(text(), 'Portal')]")
                     btn_acessar.click()
                 except:
                     self.log("Não foi possível clicar no botão 'Acessar Portal' automaticamente.", "aviso")
@@ -125,52 +133,77 @@ class BionexoAPI:
 
     def buscar_cotacoes(self):
         try:
-            self.log("Navegando para o painel de cotações...", "info")
+            self.log("Buscando cotações no painel...", "info")
             
-            # Tenta encontrar o link de cotações no menu por texto
-            # Padrões comuns: "Cotações", "Mercado", "Cotações Abertas"
+            # Tenta encontrar o link de cotações no menu
             try:
-                # Espera o menu estar visível
-                time.sleep(3)
+                # Espera o menu estar visível e pronto
+                self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+                time.sleep(5) # Delay para React carregar o menu
+
                 seletores_menu = [
                     "//a[contains(text(), 'Cotações')]",
                     "//span[contains(text(), 'Cotações')]",
                     "//a[contains(text(), 'Mercado')]",
-                    "//a[contains(@href, 'cotacoes')]"
+                    "//a[contains(@href, 'cotacoes')]",
+                    "//li[contains(@class, 'menu')]//span[contains(text(), 'Cotações')]"
                 ]
                 
                 link_cotacoes = None
                 for selector in seletores_menu:
                     try:
                         link_cotacoes = self.driver.find_element(By.XPATH, selector)
-                        if link_cotacoes: break
+                        if link_cotacoes and link_cotacoes.is_displayed(): 
+                            break
+                        else:
+                            link_cotacoes = None
                     except: continue
                 
                 if link_cotacoes:
-                    link_cotacoes.click()
-                    self.log("Menu 'Cotações' acessado.", "info")
+                    self.driver.execute_script("arguments[0].click();", link_cotacoes)
+                    self.log("Menu 'Cotações' acessado via script.", "info")
                 else:
-                    self.log("Não foi possível encontrar o menu de cotações automaticamente. Tentando URL padrão...", "aviso")
-                    self.driver.get("https://revolution.bionexo.com/v2/cotacoes") # Exemplo de URL nova
+                    self.log("Aba de cotações não identificada no menu. Tentando detecção na página atual.", "info")
             except Exception as e:
-                self.log(f"Falha na navegação do menu: {e}", "aviso")
+                self.log(f"Falha na navegação: {e}", "aviso")
 
-            time.sleep(5) # Aguarda carregamento da lista
+            # Aguarda o carregamento dos itens (específico para Revolution e Legacy)
+            time.sleep(8) 
             
-            # Extração de dados (seletor genérico para itens de tabela/cards)
-            elementos = self.driver.find_elements(By.XPATH, "//*[contains(@class, 'cotacao') or contains(@class, 'opportunity')]")
+            # Seletores amplos para suportar tabelas ou grids
+            seletores_itens = [
+                "//tr[contains(@class, 'grid-row')]",
+                "//div[contains(@class, 'opportunity')]",
+                "//div[contains(@class, 'cotacao')]",
+                "//*[contains(@class, 'card-') and contains(@class, 'cotacao')]",
+                "//table//tr[position() > 1]"
+            ]
+            
+            elementos = []
+            for selector in seletores_itens:
+                items = self.driver.find_elements(By.XPATH, selector)
+                if len(items) > 0:
+                    elementos = items
+                    self.log(f"Itens detectados via seletor: {selector}", "info")
+                    break
             
             cotacoes = []
             for el in elementos:
                 try:
-                    # Tenta extrair um ID único do elemento
-                    cid = el.get_attribute("id") or el.get_attribute("data-id")
-                    if cid:
+                    # Tenta extrair ID de vários atributos comuns
+                    cid = el.get_attribute("id") or el.get_attribute("data-id") or el.get_attribute("aria-label")
+                    if cid and len(str(cid)) > 5: # Um ID real costuma ser longo
                         cotacoes.append({"id": cid, "itens": []})
                 except:
                     continue
             
-            self.log(f"Encontradas {len(cotacoes)} cotações na página.", "info")
+            # Se não encontrou nada pelo ID, mas tem elementos, tenta pegar o texto
+            if not cotacoes and len(elementos) > 0:
+                self.log("Detectados elementos sem ID, usando contador como referência.", "aviso")
+                for i in range(len(elementos)):
+                    cotacoes.append({"id": f"temp_{i}", "itens": []})
+
+            self.log(f"Encontradas {len(cotacoes)} possíveis cotações.", "info")
             return cotacoes
             
         except Exception as e:

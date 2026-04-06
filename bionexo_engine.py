@@ -22,7 +22,7 @@ class BionexoBotEngine:
         primeiro_ciclo = True
         
         while self.rodando:
-            if not self._ciclo(manual=(primeiro_ciclo and self.manual_mode)):
+            if not self._ciclo(manual=self.manual_mode):
                 # Se o ciclo falhou (ex: login falhou), paramos o bot
                 self.rodando = False
                 break
