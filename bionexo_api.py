@@ -41,37 +41,26 @@ class BionexoAPI:
             if not self._inicializar_driver(headless):
                 return None
 
-        self.driver.maximize_window() # Garante que os elementos não fiquem escondidos
+        self.driver.maximize_window()
 
-        urls_tentar = [
-            "https://accounts.asgardeo.io/t/bionexo/authenticationendpoint/login.do?client_id=YifJfXKyIgNr6pjir1VBaCwr8qka&code_challenge=x_a1KZLhwJHctP8fMEen4cIlotQKGwreX0UzmHY8NWQ&code_challenge_method=S256&commonAuthCallerPath=%2Ft%2Fbionexo%2Foauth2%2Fauthorize&forceAuth=false&passiveAuth=false&redirect_uri=https%3A%2F%2Flogin.bionexo.com%2Fapi%2Fcallback&response_mode=query&response_type=code&scope=openid+profile+groups+application_roles+openid&state=request_0&sessionDataKey=5dd34d37-e217-4664-9aed-317e7d37a1c0&relyingParty=YifJfXKyIgNr6pjir1VBaCwr8qka&type=oidc&sp=Login&spId=b72e9305-aef2-4880-aa4f-43cc394c0b59&isSaaSApp=false&authenticators=OpenIDConnectAuthenticator%3AMicrosoft%3BBasicAuthenticator%3ALOCAL",
-            "https://bioid.bionexo.com/",
-            "https://bioid.bionexo.com.br/",
-            "https://acesso.bionexo.com/",
-            "https://www.bionexo.com/login"
-        ]
-
-        for url in urls_tentar:
-            try:
-                self.log(f"Tentando acessar: {url}", "info")
-                self.driver.get(url)
-                
-                # Verifica se caiu na tela de erro "Desculpe-nos" (Sessão expirada)
-                if "Desculpe-nos" in self.driver.page_source or "algo deu errado" in self.driver.page_source.lower():
-                    self.log(f"Link expirado ou erro na URL: {url}", "aviso")
-                    continue
-
-                # Se carregou algo que não seja erro de DNS, prossegue
-                if "ERR_NAME_NOT_RESOLVED" not in self.driver.page_source:
-                    break
-            except Exception as e:
-                self.log(f"Falha ao carregar {url}: {e}", "aviso")
-                continue
-        
         try:
-            self.log("Aguardando formulário de login ser interativo...", "info")
+            # 1. Inicia pela Home
+            self.log("Acessando Bionexo (bionexo.com)...", "info")
+            self.driver.get("https://www.bionexo.com/")
             
-            # O ID do usuário na Asgardeo é 'usernameUserInput'
+            # 2. Clica no botão de Login da Home
+            # Seletor: a.styles_navbar_buttons_login__2jR7q
+            try:
+                btn_login_home = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[class*='buttons_login']")))
+                btn_login_home.click()
+                self.log("Clicado no botão Login da Home.", "info")
+            except:
+                self.log("Botão de login da home não encontrado, tentando URL direta...", "aviso")
+                self.driver.get("https://login.bionexo.com/")
+
+            # 3. Preenche login na Asgardeo
+            self.log("Aguardando formulário de login (Asgardeo)...", "info")
+            
             username_field = self.wait.until(EC.element_to_be_clickable((By.ID, "usernameUserInput")))
             username_field.clear()
             username_field.send_keys(self.config.get("email", ""))
@@ -80,15 +69,27 @@ class BionexoAPI:
             password_field.clear()
             password_field.send_keys(self.config.get("senha", ""))
             
-            # O ID do botão na Asgardeo é 'sign-in-button'
             btn_entrar = self.wait.until(EC.element_to_be_clickable((By.ID, "sign-in-button")))
             btn_entrar.click()
+            self.log("Credenciais enviadas.", "info")
+
+            # 4. Trata tela de "Acessar Portal" (se aparecer)
+            time.sleep(5) # Aguarda redirecionamentos
+            if "Acessar Portal" in self.driver.page_source or "Acessar" in self.driver.page_source:
+                self.log("Detectada tela de seleção de portal. Tentando entrar...", "info")
+                try:
+                    # Tenta clicar no primeiro botão "Acessar Portal" que encontrar
+                    btn_acessar = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Acessar Portal')] | //a[contains(text(), 'Acessar Portal')]")
+                    btn_acessar.click()
+                except:
+                    self.log("Não foi possível clicar no botão 'Acessar Portal' automaticamente.", "aviso")
+
+            # 5. Aguarda chegar na plataforma real
+            self.wait.until(lambda d: "bionexo.com" in d.current_url and "login" not in d.current_url)
             
-            # Aguarda a página carregar após login (URL deve mudar)
-            self.wait.until(EC.url_changes(self.driver.current_url))
-            
-            self.log("Login realizado com sucesso!", "ok")
+            self.log("Login realizado e portal acessado!", "ok")
             return self.driver
+
         except Exception as e:
             self.log(f"Erro no fluxo de login: {e}", "erro")
             self.driver.save_screenshot("erro_login.png")
@@ -97,25 +98,54 @@ class BionexoAPI:
 
     def buscar_cotacoes(self):
         try:
-            # Navega para a área de cotações abertas
-            # URL exemplo, precisa ser validada com o fluxo real do usuário
-            self.driver.get("https://www.bionexo.com.br/painel-fornecedor/cotacoes/abertas")
-            time.sleep(3) # Aguarda renderização JS
+            self.log("Navegando para o painel de cotações...", "info")
             
-            # Aqui extraímos a lista de cotações do DOM
-            # Exemplo de seletor (precisa ser refinado baseado na tela real do cliente)
-            elementos = self.driver.find_elements(By.CLASS_NAME, "card-cotacao")
+            # Tenta encontrar o link de cotações no menu por texto
+            # Padrões comuns: "Cotações", "Mercado", "Cotações Abertas"
+            try:
+                # Espera o menu estar visível
+                time.sleep(3)
+                seletores_menu = [
+                    "//a[contains(text(), 'Cotações')]",
+                    "//span[contains(text(), 'Cotações')]",
+                    "//a[contains(text(), 'Mercado')]",
+                    "//a[contains(@href, 'cotacoes')]"
+                ]
+                
+                link_cotacoes = None
+                for selector in seletores_menu:
+                    try:
+                        link_cotacoes = self.driver.find_element(By.XPATH, selector)
+                        if link_cotacoes: break
+                    except: continue
+                
+                if link_cotacoes:
+                    link_cotacoes.click()
+                    self.log("Menu 'Cotações' acessado.", "info")
+                else:
+                    self.log("Não foi possível encontrar o menu de cotações automaticamente. Tentando URL padrão...", "aviso")
+                    self.driver.get("https://revolution.bionexo.com/v2/cotacoes") # Exemplo de URL nova
+            except Exception as e:
+                self.log(f"Falha na navegação do menu: {e}", "aviso")
+
+            time.sleep(5) # Aguarda carregamento da lista
+            
+            # Extração de dados (seletor genérico para itens de tabela/cards)
+            elementos = self.driver.find_elements(By.XPATH, "//*[contains(@class, 'cotacao') or contains(@class, 'opportunity')]")
             
             cotacoes = []
             for el in elementos:
                 try:
-                    cid = el.get_attribute("data-id")
-                    # ... parseamento do item ...
-                    cotacoes.append({"id": cid, "itens": []}) # Estrutura básica
+                    # Tenta extrair um ID único do elemento
+                    cid = el.get_attribute("id") or el.get_attribute("data-id")
+                    if cid:
+                        cotacoes.append({"id": cid, "itens": []})
                 except:
                     continue
             
+            self.log(f"Encontradas {len(cotacoes)} cotações na página.", "info")
             return cotacoes
+            
         except Exception as e:
             self.log(f"Erro ao buscar cotações: {e}", "aviso")
             return []
