@@ -71,10 +71,10 @@ class BionexoBotEngine:
             self.log(f"Cotações identificadas: {len(cotacoes)}", "info")
 
             if not cotacoes:
-                self.log("Nenhuma cotação aberta encontrada no painel.", "info")
+                self.log("Nenhuma cotação aberta encontrada no painel. Aguardando próximo ciclo...", "info")
                 DataManager.registrar_historico(0, 0, 0, "Sem cotações")
                 self.finish_cycle()
-                return
+                return True
 
             total_resp = 0
             total_sem = 0

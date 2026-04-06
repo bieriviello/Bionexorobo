@@ -38,6 +38,16 @@ class BionexoAPI:
 
     def login_manual(self):
         """Abre o site e espera o usuário logar manualmente."""
+        if self.driver:
+            # Verifica se já estamos logados em uma sessão ativa
+            try:
+                curr_url = self.driver.current_url
+                if "bionexo.com" in curr_url and not any(x in curr_url for x in ["login.", "auth.", "asgardeo", "accounts.", "index3.jsp"]):
+                    self.log("Sessão ativa detectada no navegador. Pulando navegação de login.", "ok")
+                    return self.driver
+            except:
+                pass
+
         if not self.driver:
             if not self._inicializar_driver(headless=False): # Força visível
                 return None
@@ -51,8 +61,6 @@ class BionexoAPI:
         for i in range(600):
             try:
                 curr_url = self.driver.current_url
-                # Se não estamos nas telas de login/asgardeo e estamos no domínio bionexo:
-                # O painel pode ser bionexo.bionexo.com ou revolution.bionexo.com
                 if "bionexo.com" in curr_url and not any(x in curr_url for x in ["login.", "auth.", "asgardeo", "accounts.", "index3.jsp"]):
                     self.log("Login manual detectado com sucesso!", "ok")
                     return self.driver
@@ -168,21 +176,22 @@ class BionexoAPI:
                 self.log(f"Falha na navegação: {e}", "aviso")
 
             # Aguarda o carregamento dos itens (específico para Revolution e Legacy)
-            time.sleep(8) 
+            time.sleep(10) 
             
             # Seletores amplos para suportar tabelas ou grids
             seletores_itens = [
                 "//tr[contains(@class, 'grid-row')]",
                 "//div[contains(@class, 'opportunity')]",
                 "//div[contains(@class, 'cotacao')]",
-                "//*[contains(@class, 'card-') and contains(@class, 'cotacao')]",
+                "//div[contains(@class, 'card-') and contains(@class, 'info')]",
+                "//*[contains(@class, 'list-item')]",
                 "//table//tr[position() > 1]"
             ]
             
             elementos = []
             for selector in seletores_itens:
                 items = self.driver.find_elements(By.XPATH, selector)
-                if len(items) > 0:
+                if len(items) > 0 and items[0].is_displayed():
                     elementos = items
                     self.log(f"Itens detectados via seletor: {selector}", "info")
                     break
@@ -192,16 +201,16 @@ class BionexoAPI:
                 try:
                     # Tenta extrair ID de vários atributos comuns
                     cid = el.get_attribute("id") or el.get_attribute("data-id") or el.get_attribute("aria-label")
-                    if cid and len(str(cid)) > 5: # Um ID real costuma ser longo
+                    if cid and len(str(cid)) > 3:
                         cotacoes.append({"id": cid, "itens": []})
                 except:
                     continue
             
             # Se não encontrou nada pelo ID, mas tem elementos, tenta pegar o texto
             if not cotacoes and len(elementos) > 0:
-                self.log("Detectados elementos sem ID, usando contador como referência.", "aviso")
+                self.log("Detectados elementos visíveis sem IDs claros. Usando referência genérica.", "aviso")
                 for i in range(len(elementos)):
-                    cotacoes.append({"id": f"temp_{i}", "itens": []})
+                    cotacoes.append({"id": f"item_lista_{i+1}", "itens": []})
 
             self.log(f"Encontradas {len(cotacoes)} possíveis cotações.", "info")
             return cotacoes
