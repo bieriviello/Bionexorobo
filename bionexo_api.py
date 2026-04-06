@@ -41,6 +41,8 @@ class BionexoAPI:
             if not self._inicializar_driver(headless):
                 return None
 
+        self.driver.maximize_window() # Garante que os elementos não fiquem escondidos
+
         urls_tentar = [
             "https://accounts.asgardeo.io/t/bionexo/authenticationendpoint/login.do?client_id=YifJfXKyIgNr6pjir1VBaCwr8qka&code_challenge=x_a1KZLhwJHctP8fMEen4cIlotQKGwreX0UzmHY8NWQ&code_challenge_method=S256&commonAuthCallerPath=%2Ft%2Fbionexo%2Foauth2%2Fauthorize&forceAuth=false&passiveAuth=false&redirect_uri=https%3A%2F%2Flogin.bionexo.com%2Fapi%2Fcallback&response_mode=query&response_type=code&scope=openid+profile+groups+application_roles+openid&state=request_0&sessionDataKey=5dd34d37-e217-4664-9aed-317e7d37a1c0&relyingParty=YifJfXKyIgNr6pjir1VBaCwr8qka&type=oidc&sp=Login&spId=b72e9305-aef2-4880-aa4f-43cc394c0b59&isSaaSApp=false&authenticators=OpenIDConnectAuthenticator%3AMicrosoft%3BBasicAuthenticator%3ALOCAL",
             "https://bioid.bionexo.com/",
@@ -54,6 +56,11 @@ class BionexoAPI:
                 self.log(f"Tentando acessar: {url}", "info")
                 self.driver.get(url)
                 
+                # Verifica se caiu na tela de erro "Desculpe-nos" (Sessão expirada)
+                if "Desculpe-nos" in self.driver.page_source or "algo deu errado" in self.driver.page_source.lower():
+                    self.log(f"Link expirado ou erro na URL: {url}", "aviso")
+                    continue
+
                 # Se carregou algo que não seja erro de DNS, prossegue
                 if "ERR_NAME_NOT_RESOLVED" not in self.driver.page_source:
                     break
@@ -62,22 +69,28 @@ class BionexoAPI:
                 continue
         
         try:
-            # Aguarda e preenche o login (BioID usa selectors username/password)
-            self.wait.until(EC.presence_of_element_located((By.ID, "username"))).send_keys(self.config.get("email", ""))
-            self.driver.find_element(By.ID, "password").send_keys(self.config.get("senha", ""))
+            self.log("Aguardando formulário de login ser interativo...", "info")
             
-            # Clique no botão entrar
-            btn_entrar = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            # O ID do usuário na Asgardeo é 'usernameUserInput'
+            username_field = self.wait.until(EC.element_to_be_clickable((By.ID, "usernameUserInput")))
+            username_field.clear()
+            username_field.send_keys(self.config.get("email", ""))
+            
+            password_field = self.wait.until(EC.element_to_be_clickable((By.ID, "password")))
+            password_field.clear()
+            password_field.send_keys(self.config.get("senha", ""))
+            
+            # O ID do botão na Asgardeo é 'sign-in-button'
+            btn_entrar = self.wait.until(EC.element_to_be_clickable((By.ID, "sign-in-button")))
             btn_entrar.click()
             
-            # Aguarda a página carregar após login
+            # Aguarda a página carregar após login (URL deve mudar)
             self.wait.until(EC.url_changes(self.driver.current_url))
             
             self.log("Login realizado com sucesso!", "ok")
             return self.driver
         except Exception as e:
             self.log(f"Erro no fluxo de login: {e}", "erro")
-            # Tira print para debug se der erro (opcional, salvando localmente)
             self.driver.save_screenshot("erro_login.png")
             self.fechar()
             return None
