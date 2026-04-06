@@ -15,11 +15,20 @@ class BionexoBotEngine:
         self.api = BionexoAPI(config, log_callback=self.log)
         self.rodando = False
 
-    def iniciar(self):
+    def iniciar(self, manual=False):
         self.rodando = True
+        self.manual_mode = manual
         intervalo = int(self.config.get("intervalo_min", 10)) * 60
+        primeiro_ciclo = True
+        
         while self.rodando:
-            self._ciclo()
+            if not self._ciclo(manual=(primeiro_ciclo and self.manual_mode)):
+                # Se o ciclo falhou (ex: login falhou), paramos o bot
+                self.rodando = False
+                break
+            
+            primeiro_ciclo = False
+            # ... resto do loop ...
             if not self.rodando:
                 break
             # Espera inteligente (pode ser interrompida)
@@ -38,21 +47,24 @@ class BionexoBotEngine:
         if self.api:
             self.api.fechar()
 
-    def _ciclo(self):
+    def _ciclo(self, manual=False):
         self.log("─" * 45, "info")
-        self.log("Iniciando ciclo de varredura (Selenium)...", "info")
+        self.log(f"Iniciando ciclo de varredura ({'Manual' if manual else 'Auto'})...", "info")
+        
         try:
-            # Pega configuração de headless da UI (se existir, senão usa True)
-            headless = self.config.get("navegador_visivel") != True
+            if manual:
+                sessao_valida = self.api.login_manual()
+            else:
+                headless = self.config.get("navegador_visivel") != True
+                self.log(f"Fazendo login via BioID (Visible={'No' if headless else 'Yes'})...", "info")
+                sessao_valida = self.api.login(headless=headless)
             
-            self.log(f"Fazendo login no BioID (Visible={'No' if headless else 'Yes'})...", "info")
-            sessao_valida = self.api.login(headless=headless)
             if not sessao_valida:
                 self.log("Falha no login ou inicialização do navegador.", "erro")
                 self.metric_add("erros", 1)
                 DataManager.registrar_historico(0, 0, 0, "Falha no login/driver")
                 self.finish_cycle()
-                return
+                return False
 
             self.log("Navegador pronto e logado.", "ok")
             cotacoes = self.api.buscar_cotacoes()

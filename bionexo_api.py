@@ -36,6 +36,33 @@ class BionexoAPI:
             self.log(f"Erro ao inicializar navegador: {e}", "erro")
             return False
 
+    def login_manual(self):
+        """Abre o site e espera o usuário logar manualmente."""
+        if not self.driver:
+            if not self._inicializar_driver(headless=False): # Força visível
+                return None
+        
+        self.driver.maximize_window()
+        self.driver.get("https://www.bionexo.com/")
+        self.log("Aguardando LOGIN MANUAL no navegador...", "aviso")
+        self.log("Por favor, faça o login e entre no painel principal.", "info")
+        
+        # Loop de espera (máximo 10 minutos)
+        for i in range(600):
+            try:
+                curr_url = self.driver.current_url
+                # Se não estamos nas telas de login/asgardeo e estamos no domínio bionexo:
+                # O painel pode ser bionexo.bionexo.com ou revolution.bionexo.com
+                if "bionexo.com" in curr_url and not any(x in curr_url for x in ["login.", "auth.", "asgardeo", "accounts.", "index3.jsp"]):
+                    self.log("Login manual detectado com sucesso!", "ok")
+                    return self.driver
+            except:
+                pass
+            time.sleep(1)
+        
+        self.log("Tempo limite para login manual excedido.", "erro")
+        return None
+
     def login(self, headless=True):
         if not self.driver:
             if not self._inicializar_driver(headless):

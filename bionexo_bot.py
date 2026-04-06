@@ -651,7 +651,17 @@ class BionexoApp(ctk.CTk):
             border_width=1, border_color=COR_AZUL,
             command=self._rodar_agora,
         )
-        self.btn_agora.pack(padx=20, pady=(0, 20), fill="x")
+        self.btn_agora.pack(padx=20, pady=(0, 10), fill="x")
+
+        self.btn_manual = ctk.CTkButton(
+            card_bot, text="🔑  Abrir para Login Manual",
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent", hover_color=COR_CINZA_BG,
+            text_color=COR_VERDE, height=36, corner_radius=8,
+            border_width=1, border_color=COR_VERDE,
+            command=self._iniciar_manual,
+        )
+        self.btn_manual.pack(padx=20, pady=(0, 20), fill="x")
 
         # ─── Card: Log em tempo real ─────────────────────
         card_log = ctk.CTkFrame(col_esq, fg_color=COR_CINZA_CARD,
@@ -748,7 +758,15 @@ class BionexoApp(ctk.CTk):
         if not self._validar_pre_inicio():
             return
         self._set_estado_bot(True)
-        self.thread_bot = threading.Thread(target=self.engine.iniciar, daemon=True)
+        self.thread_bot = threading.Thread(target=self.engine.iniciar, args=(False,), daemon=True)
+        self.thread_bot.start()
+
+    def _iniciar_manual(self):
+        if not self._validar_pre_inicio():
+            return
+        self._log("🔑 Iniciando Modo Login Manual...", "aviso")
+        self._set_estado_bot(True)
+        self.thread_bot = threading.Thread(target=self.engine.iniciar, args=(True,), daemon=True)
         self.thread_bot.start()
 
     def _parar_bot(self):
