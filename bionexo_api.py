@@ -42,6 +42,7 @@ class BionexoAPI:
                 return None
 
         urls_tentar = [
+            "https://accounts.asgardeo.io/t/bionexo/authenticationendpoint/login.do?client_id=YifJfXKyIgNr6pjir1VBaCwr8qka&code_challenge=x_a1KZLhwJHctP8fMEen4cIlotQKGwreX0UzmHY8NWQ&code_challenge_method=S256&commonAuthCallerPath=%2Ft%2Fbionexo%2Foauth2%2Fauthorize&forceAuth=false&passiveAuth=false&redirect_uri=https%3A%2F%2Flogin.bionexo.com%2Fapi%2Fcallback&response_mode=query&response_type=code&scope=openid+profile+groups+application_roles+openid&state=request_0&sessionDataKey=5dd34d37-e217-4664-9aed-317e7d37a1c0&relyingParty=YifJfXKyIgNr6pjir1VBaCwr8qka&type=oidc&sp=Login&spId=b72e9305-aef2-4880-aa4f-43cc394c0b59&isSaaSApp=false&authenticators=OpenIDConnectAuthenticator%3AMicrosoft%3BBasicAuthenticator%3ALOCAL",
             "https://bioid.bionexo.com/",
             "https://bioid.bionexo.com.br/",
             "https://acesso.bionexo.com/",
