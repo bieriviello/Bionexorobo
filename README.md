@@ -1,103 +1,66 @@
-# BIONEXO BOT — Guia Rápido
+# 🤖 Bionexo Bot — Automação de Cotações
 
-Sistema de automação de cotações para fornecedores da Bionexo.
-Interface gráfica em Python, roda no Windows, Mac e Linux.
-**Não precisa instalar nada além do Python.**
+![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)
+![Selenium](https://img.shields.io/badge/Selenium-WebDriver-green?logo=selenium)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+Robô de automação para fornecedores da plataforma **Bionexo**, que monitora cotações em aberto e responde automaticamente com base no catálogo de produtos do fornecedor.
+
+---
+
+## Como funciona
+
+O bot usa **Selenium WebDriver** para acessar o portal Bionexo (BioID), navegar pelas cotações abertas e preencher propostas automaticamente, replicando as ações de um operador humano.
+
+O matching entre o item solicitado e o catálogo do fornecedor é feito em três níveis:
+1. **Match exato** — descrição idêntica
+2. **Match por código** — código interno igual
+3. **Match por palavras-chave** — ≥65% das palavras do item pedido estão na descrição do produto
+
+---
+
+## Funcionalidades
+
+- Interface gráfica (customtkinter) — sem necessidade de linha de comando
+- Importação de catálogo via Excel ou CSV com detecção automática de colunas
+- Configuração de margem percentual sobre os preços
+- Varredura periódica configurável (padrão: 10 minutos)
+- Log de execuções em tempo real
+- Compatível com Windows, macOS e Linux
+
+---
+
+## Stack
+
+| Camada | Tecnologia |
+|---|---|
+| Automação web | Selenium + webdriver-manager |
+| Interface gráfica | customtkinter |
+| Leitura de planilhas | openpyxl |
+| Linguagem | Python 3.8+ |
 
 ---
 
 ## Como rodar
-
-### Opção 1 — Automático (recomendado)
-Dê dois cliques em `instalar_e_rodar.py`
-ou execute:
-```
+```bash
+# Opção rápida (instala dependências e abre o app)
 python instalar_e_rodar.py
-```
-Ele instala o que falta e abre o programa.
 
-### Opção 2 — Manual
-```
+# Ou manualmente
 pip install customtkinter openpyxl selenium webdriver-manager
 python bionexo_bot.py
 ```
 
----
-
-## Primeiros passos no app
-
-### 1. Importe seu catálogo (aba "Catálogo")
-- Clique em **+ Importar Excel / CSV**
-- Selecione sua planilha com os produtos
-- O sistema detecta as colunas automaticamente
-- Use o filtro por palavra-chave para localizar produtos
-
-**Colunas reconhecidas automaticamente:**
-| Coluna | Nomes aceitos |
-|--------|--------------|
-| Descrição | descricao, produto, item, material, nome |
-| Código | codigo, cod, ref, sku, referencia |
-| Preço | preco, valor, price, custo |
-| Prazo | prazo, entrega, lead, dias |
-| Marca | marca, fabricante, brand |
-| Unidade | unidade, un, unit |
-| Estoque | estoque, qtd, saldo, stock |
-| Ativo | ativo, status, habilitado |
-
-### 2. Configure suas credenciais (aba "Configurações")
-- E-mail e senha da Bionexo
-- CNPJ da sua empresa
-- Margem extra opcional (ex: 5 = sobe 5% nos preços)
-- Intervalo de varredura (padrão: 10 minutos)
-
-### 3. Teste e ative o robô (aba "Robô")
-- Clique em **⚡ Rodar uma vez agora** para testar
-- Acompanhe o log em tempo real
-- Se funcionar, clique **▶ Iniciar robô** para modo contínuo
+> Requer Google Chrome instalado. O ChromeDriver é gerenciado automaticamente.
 
 ---
 
-## Como o robô encontra os produtos
-
-1. **Match exato** — descrição idêntica
-2. **Match por código** — código interno igual
-3. **Match por palavras-chave** — 65% das palavras do item pedido aparecem na descrição do seu produto
-
-Dica: quanto mais detalhada a descrição, melhor o match.
-
----
-
-## Arquivos gerados pelo sistema
-
-| Arquivo | Conteúdo |
-|---------|----------|
-| `bionexo_config.json` | Suas configurações salvas |
-| `bionexo_historico.json` | Log de todas as execuções |
-
----
-
-## Requisitos
-
-- Python 3.8 ou superior
-- Windows 10/11, macOS 11+ ou Linux
-- Conexão com a internet
-- Conta ativa de fornecedor na Bionexo
-
----
-
-## Funcionamento e Manutenção
-
-O robô utiliza o **Selenium WebDriver** para automatizar o acesso ao portal da Bionexo (BioID).
-Isso significa que ele abre uma instância do Google Chrome (visível ou oculta) e realiza as
-mesmas ações que um humano faria: preenche o login, senha e navega pelas telas.
-
-**Vantagens:**
-- Mais robusto contra mudanças de segurança da Bionexo.
-- Consegue lidar com sistemas de autenticação complexos (BioID).
-
-**Requisitos Adicionais:**
-- Ter o **Google Chrome** instalado no computador.
-- O robô gerencia o "ChromeDriver" automaticamente através do `webdriver-manager`.
-
-Se o portal da Bionexo sofrer uma mudança visual radical, os seletores em `bionexo_api.py`
-podem precisar de ajuste pontual.
+## Estrutura do projeto
+```
+├── bionexo_bot.py          # Interface gráfica principal
+├── bionexo_engine.py       # Lógica de matching e execução
+├── bionexo_api.py          # Automação Selenium (login, navegação)
+├── bionexo_data.py         # Gestão do catálogo e configurações
+├── instalar_e_rodar.py     # Script de instalação automática
+└── diagnostico_selenium.py # Ferramenta de diagnóstico
+```
